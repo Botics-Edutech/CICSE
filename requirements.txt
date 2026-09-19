@@ -1,0 +1,12 @@
+# PC-side tooling only. GV2 itself needs no Python -- it runs the model on-device.
+pyserial>=3.5
+opencv-python>=4.8
+numpy>=1.24
+Pillow>=10.0
+
+# Only needed for tools/inspect_model.py --pt and tools/validate_tflite.py
+# --compare-fresh-export (i.e. only if you re-touch best.pt). Not needed to
+# just flash and run the existing model.
+tensorflow>=2.15
+ultralytics==8.4.89   # pin: matches the version best.pt was trained with
+ethos-u-vela>=4.0     # only needed if you ever re-run Vela yourself
