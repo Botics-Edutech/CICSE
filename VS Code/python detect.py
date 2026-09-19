@@ -1,109 +1,76 @@
-from ultralytics import YOLO
+import base64
+import time
 import cv2
+import numpy as np
+from ultralytics import YOLO
+from sscma.micro.client import SerialClient
+from sscma.micro.device import Device
 
-# Load trained AI model
-model = YOLO("best.pt")
+# ---------------- CONFIG (apne hisaab se change karo) ----------------
+GV2_PORT = "COM13"        # Device Manager se GV2 ka COM port
+MODEL_PATH = "best.pt"   # tumhara trained model
+CONFIDENCE_THRESHOLD = 0.5
+# -----------------------------------------------------------------
 
-# Open camera
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+model = YOLO(MODEL_PATH)
+latest_frame = {"img": None}
 
-if not cap.isOpened():
-    print("ERROR: Camera open nahi hua")
-    exit()
 
-print("AI DETECTION + COORDINATES STARTED")
-print("Press Q to quit")
+def monitor_handler(msg):
+    # GV2 har frame ke saath yeh function call karta hai
+    if "image" in msg:
+        jpeg_bytes = base64.b64decode(msg["image"])
+        nparr = np.frombuffer(jpeg_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        latest_frame["img"] = img
 
-while True:
 
-    ret, frame = cap.read()
+def on_device_connect(device):
+    print("GV2 connected. Starting continuous capture...")
+    device.invoke(-1, False, True)  # -1 = continuous frames, True = image chahiye
 
-    if not ret:
-        print("ERROR: Frame nahi mila")
-        break
 
-    # YOLO detection
-    results = model.predict(
-        source=frame,
-        imgsz=224,
-        conf=0.25,
-        verbose=False
-    )
+def main():
+    client = SerialClient(GV2_PORT)
+    device = Device(client)
+    device.on_monitor = monitor_handler
+    device.on_connect = on_device_connect
+    device.loop_start()
 
-    result = results[0]
+    print("AI DETECTION + COORDINATES STARTED")
+    print("Press Q to quit")
 
-    # Check every detected object
-    for box in result.boxes:
+    try:
+        while True:
+            frame = latest_frame["img"]
+            if frame is None:
+                time.sleep(0.05)
+                continue
 
-        # Class
-        cls_id = int(box.cls[0])
-        class_name = model.names[cls_id]
+            results = model.predict(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)[0]
 
-        # Confidence
-        confidence = float(box.conf[0])
+            for box in results.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                conf = float(box.conf[0])
+                cls_id = int(box.cls[0])
+                cls_name = model.names[cls_id]
 
-        # Bounding box
-        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                w, h = x2 - x1, y2 - y1
 
-        # CENTER X,Y
-        center_x = int((x1 + x2) / 2)
-        center_y = int((y1 + y2) / 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"{cls_name} {conf:.2f}", (x1, max(y1 - 8, 0)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        # Terminal output
-        print(
-            f"{class_name} | "
-            f"conf={confidence:.2f} | "
-            f"X={center_x} | Y={center_y}"
-        )
+                print(f"Class: {cls_name} | Conf: {conf:.2f} | X:{cx} Y:{cy} W:{w} H:{h}")
 
-        # Draw center point
-        cv2.circle(
-            frame,
-            (center_x, center_y),
-            5,
-            (0, 0, 255),
-            -1
-        )
+            cv2.imshow("GV2 Detection", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        device.loop_stop()
+        cv2.destroyAllWindows()
 
-        # Draw coordinates
-        cv2.putText(
-            frame,
-            f"{class_name} ({center_x},{center_y})",
-            (center_x, center_y - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            2
-        )
 
-    # Display
-    annotated = result.plot()
-
-    # Put our coordinate markers on top
-    for box in result.boxes:
-        x1, y1, x2, y2 = box.xyxy[0].tolist()
-        cx = int((x1 + x2) / 2)
-        cy = int((y1 + y2) / 2)
-
-        cv2.circle(annotated, (cx, cy), 5, (0, 0, 255), -1)
-
-        cls_id = int(box.cls[0])
-        name = model.names[cls_id]
-
-        cv2.putText(
-            annotated,
-            f"{name}: ({cx},{cy})",
-            (cx, cy - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            2
-        )
-
-    cv2.imshow("BOTICS ALPHA - AI Detection", annotated)
-
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
