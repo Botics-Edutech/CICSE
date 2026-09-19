@@ -1,0 +1,5 @@
+{
+  "_comment": "Template only — no real data. Run `python python/calibration.py collect` to fill this from actual measured points on your robot. Do NOT hand-edit fake numbers into this file; it feeds directly into the homography used to command the arm.",
+  "pixel_points": [],
+  "robot_points": []
+}
