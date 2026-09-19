@@ -1,0 +1,62 @@
+{
+  "pipeline_version": "v2_yolov8n",
+  "replaces": "v1 YOLO26n pipeline (models/best.pt, models/best_full_integer_quant_vela.tflite) — DEPRECATED, root-caused as unsupported by SenseCraft/GV2 firmware, kept for reference only",
+  "architecture": "YOLOv8n (Ultralytics 8.3.203, classic TensorFlow SavedModel -> TFLiteConverter export path, NOT the newer litert_torch backend)",
+  "why_this_architecture": "Seeed's own official Grove Vision AI V2 deployment docs (wiki.seeedstudio.com/ma_deploy_yolov8) document YOLOv8n as a supported architecture for GV2/SenseCraft. YOLO26 was confirmed unsupported by Seeed staff on their own forum (SenseCraft does not currently parse YOLO26 metadata), which is the root cause of the v1 model's boxes:[] failure on real hardware.",
+  "classes": ["red_patient", "yellow_patient", "green_patient", "sample"],
+  "class_order_is_fixed": true,
+  "input": {
+    "shape": [1, 192, 192, 3],
+    "layout": "NHWC",
+    "dtype": "int8",
+    "scale": 0.003875432536005974,
+    "zero_point": -128,
+    "note": "192x192, NOT 224x224 -- this is the resolution Seeed's official YOLOv8 pipeline docs specify for GV2, and is intentionally different from the v1 YOLO26 model's 224x224."
+  },
+  "output": {
+    "shape": [1, 8, 756],
+    "dtype": "int8",
+    "scale": 0.011811849661171436,
+    "zero_point": -128,
+    "layout": "channels = [box_x, box_y, box_w, box_h, cls0_red, cls1_yellow, cls2_green, cls3_sample], 756 = sum of anchor grid cells at strides 8/16/32 for imgsz=192 (24x24 + 12x12 + 6x6)",
+    "note": "This is the raw one2many-style anchor output required for Ethos-U55 deployment (no on-chip NMS/TopK). SenseCraft/SSCMA firmware performs the class-argmax + NMS decode on-device -- this is the same output contract Seeed's official YOLOv8 GV2 models use."
+  },
+  "training": {
+    "dataset_source": "Rebuilt from annotations.json files inside the user's Seperate_Images.zip (SenseCraft per-class training exports) -- real pixel-space bounding boxes, not synthetic labels",
+    "images_per_class": 100,
+    "total_images": 400,
+    "train_images": 340,
+    "val_images": 60,
+    "epochs": 80,
+    "imgsz": 192,
+    "batch": 16,
+    "device": "CPU",
+    "val_metrics": {
+      "precision": 0.993,
+      "recall": 1.0,
+      "mAP50": 0.995,
+      "mAP50_95": 0.964
+    },
+    "KNOWN_LIMITATION": "Training images are single-object, plain-background photos captured via SenseCraft's own capture workflow -- NOT the cluttered, multi-object competition scene. High val metrics reflect performance on data resembling the training distribution, not a guarantee of real-arena generalization. This caveat applies equally to the v1 model and is not new to this pipeline."
+  },
+  "export_toolchain": {
+    "ultralytics_version": "8.3.203 (deliberately pinned -- ultralytics >=8.4.83 defaults to a newer litert_torch export backend that produces NCHW float32-wrapped I/O incompatible with clean Vela compilation; this was reproduced and confirmed during this session, see docs/YOLOV8N_PIPELINE.md)",
+    "export_command": "yolo export model=best.pt format=tflite imgsz=192 int8 data=yolo_dataset/data.yaml",
+    "tensorflow_version": "2.19.1 (via classic SavedModel -> TFLiteConverter path)",
+    "vela_version": "installed ethos-u-vela, --accelerator-config ethos-u55-64"
+  },
+  "vela_compile_result": {
+    "cpu_fallback_ops": 0,
+    "npu_ops": 261,
+    "npu_ops_percent": 100.0,
+    "dequantize_quantize_warnings": false,
+    "total_sram_kib": 818.02,
+    "total_flash_kib": 2852.47,
+    "note": "Clean single-op compile, no CPU-fallback DEQUANTIZE/QUANTIZE wrapper ops -- this is the same clean-compile signature as the originally-provided v1 file, now achieved starting from a supported architecture."
+  },
+  "offline_validation": {
+    "structural_validation": "PASS -- see tools/validate_tflite.py --imgsz 192 output",
+    "confidence_test": "PASS -- 60/60 held-out val images (15 per class) produced the correct top class from BOTH PyTorch (mean conf 0.965) and the pre-Vela INT8 TFLite (mean conf 0.725, narrower dynamic range from int8 quantization of the class-score tensor -- expected and not a defect). 0/60 images produced zero detections, unlike the v1 model's persistent boxes:[] on real hardware.",
+    "NOT_TESTED": "Actual Ethos-U55 NPU execution via Vela's command stream -- this requires real GV2 hardware or Arm's Ethos-U simulator, neither available in this environment. The confidence test above validates the INT8 math Vela compiles 1:1 (Vela only schedules ops for the NPU, it does not change arithmetic), but the on-device SenseCraft/SSCMA postprocessing (anchor decode + NMS + metadata parsing) has NOT been exercised. HARDWARE VALIDATION PENDING."
+  }
+}
