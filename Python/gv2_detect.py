@@ -178,6 +178,20 @@ def to_detections(event_obj: dict, threshold: float, scale_x: float = 1.0, scale
             cx = x_topleft + w / 2
             cy = y_topleft + h / 2
 
+        # if BOX_XY_IS_CENTER:
+        #             cx, cy = x, y
+        #             x_topleft = cx - w/2 - w/4
+        #             y_topleft = cy - h/2 - h/4
+
+        #             cx = x_topleft + w/2
+        #             cy = y_topleft + h/2 
+
+
+        # else:
+        #             x_topleft, y_topleft = x, y
+        #             cx = x_topleft + w/2
+        #             cy = y_topleft + h/2
+
         detections.append(Detection(
             class_id=int(target), class_name=class_name(int(target)),
             confidence=conf, x=int(round(x_topleft)), y=int(round(y_topleft)),
@@ -312,11 +326,11 @@ def main():
                 # the wrong scale.
                 frame = decode_image_field(event_obj) if have_cv2 else None
                 debug_frame_shape(frame)
-                if frame is not None:
-                    scale_x = frame.shape[1] / MODEL_INPUT_SIZE
-                    scale_y = frame.shape[0] / MODEL_INPUT_SIZE
-                else:
-                    scale_x = scale_y = 1.0  # no frame to scale against (e.g. --result-only)
+                # if frame is not None:
+                #     scale_x = frame.shape[1] / MODEL_INPUT_SIZE
+                #     scale_y = frame.shape[0] / MODEL_INPUT_SIZE
+                # else:
+                scale_x = scale_y = 1.0  # no frame to scale against (e.g. --result-only)
 
                 detections = to_detections(event_obj, args.threshold, scale_x, scale_y)
                 print_detections(detections)
